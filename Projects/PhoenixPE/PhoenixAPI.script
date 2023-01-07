@@ -6,7 +6,7 @@
 // Additional 3rd party tools, encoded files, and programs used by the project are the property
 // of their respective authors and may be subject to their own license agreement.
 //
-// Copyright (c) 2014-2023 Jonathan Holmgren (Homes32)
+// Copyright (c) 2014-2022 Jonathan Holmgren (Homes32)
 //
 // Permission is hereby granted, free of charge, to any person obtaining a copy
 // of this software and associated documentation files (the "Software"), to deal
@@ -32,8 +32,8 @@
 Title=PhoenixPE API
 Author=Homes32
 Description=PhoenixPE scripting support library.
-Version=1.6.1.0
-Date=2022-12-30
+Version=1.6.0.0
+Date=2022-06-27
 Level=0
 Selected=None
 
@@ -42,6 +42,8 @@ Selected=None
 // In the future this can be used to add support for replacement pre-shell processors.
 // PECMD - Use PECMD (Default)
 %_PhoenixAPI_ConfigMode%=PECMD
+// Defines the program/command used to download 
+%_PhoenixPE_Downloader%=curl
 
 [Macros]
 // Registry
@@ -106,6 +108,9 @@ ApplyBitMask=Run,%API%,_PhoenixAPI_ApplyBitMask
 BitClear=Run,%API%,_PhoenixAPI_BitClear
 BitSet=Run,%API%,_PhoenixAPI_BitSet
 BitToggle=Run,%API%,_PhoenixAPI_BitToggle
+
+// Downloading Files
+WebDownload=Run,%API%,_PhoenixAPI_WebDownload
 
 [#_PhoenixAPI_RegLoadHives#]
 // ===============================================================================================================================
@@ -859,7 +864,6 @@ If,%_PhoenixAPI_ConfigMode%,Equal,PECMD,Begin
   
   If,%RunGroup%,Equal,"Preshell",TXTReplace,"%TargetSystem32%\pecmd.ini","_END Preshell","TEXT %Title%##0xFFFFFF L59 T39 $20#$xEXEC %ExecMode%%ProgramExe% %Parameters%#$x#$x_END Preshell"
   Else,If,%RunGroup%,Equal,"Postshell",TXTReplace,"%TargetSystem32%\pecmd.ini","_END PostShell","TEXT %Title%##0xFFFFFF L59 T39 $20#$xEXEC %ExecMode%%ProgramExe% %Parameters%#$x#$x_END PostShell"
-  Else,If,%RunGroup%,Equal,"NetInit",TXTReplace,"%TargetSystem32%\pecmd.ini","_END NetInit","TEXT %Title%##0xFFFFFF L59 T39 $20#$xEXEC %ExecMode%%ProgramExe% %Parameters%#$x#$x_END NetInit"
   Else,If,%RunGroup%,Equal,"RunOnce",Run,%API%,__PhoenixAPI_AddAutoRun_RunOnce
   Else,If,%RunGroup%,Equal,"AfterNetwork",Run,%API%,__PhoenixAPI_AddAutoRun_AfterNetwork
   Else,Halt,"AddAutoRun Syntax Error: [%RunGroup%] is not a supported Run method."
@@ -1254,8 +1258,8 @@ Else,Set,%Recurse%,True
 StrFormat,Replace,%Filter%," ","",%Filter%
 StrFormat,Replace,%Filter%,",","#$c",%Filter%
 
-If,%Recurse%,Equal,True,ShellExecute,Hide,"powershell.exe","-ExecutionPolicy Bypass -Command #$qGet-ChildItem -Path '%Path%' -Include %Filter% -Recurse | Where-Object {$_.Name -Like '*#$c*.*'} | Remove-Item -Force#$q","%Path%"
-Else,ShellExecute,Hide,"powershell.exe","-ExecutionPolicy Bypass -Command #$qGet-ChildItem -Path '%Path%\*' -Include %Filter% | Where-Object {$_.Name -Like '*#$c*.*'} | Remove-Item -Force#$q","%Path%"
+If,%Recurse%,Equal,True,ShellExecute,Hide,"powershell.exe","-ExecutionPolicy Bypass -Command #$qGet-ChildItem -Path '%Path%' -Include %Filter% -Recurse | Where-Object {$_.Name -Like '*#$c?.*'} | Remove-Item -Force#$q","%Path%"
+Else,ShellExecute,Hide,"powershell.exe","-ExecutionPolicy Bypass -Command #$qGet-ChildItem -Path '%Path%\*' -Include %Filter% | Where-Object {$_.Name -Like '*#$c?.*'} | Remove-Item -Force#$q","%Path%"
 If,Not,%ExitCode%,Equal,0,Halt,"InnoCleanup Error: Failed to rename files. [%ExitCode%]."
 
 System,EndLocal
@@ -1283,7 +1287,6 @@ System,EndLocal
 //                  of files, instead of having to copy and rename each file individually.
 //
 //                  Dev Note: We are using `Move-Item -Force` as `Rename-Item -Force` can't overwrite files that already exist. Brilliant M$.
-//
 // Related........: InnoExtract, InnoCleanup
 // ===============================================================================================================================
 [_PhoenixAPI_InnoRename]
@@ -1302,8 +1305,8 @@ Else,Set,%Recurse%,True
 StrFormat,Replace,%Filter%," ","",%Filter%
 StrFormat,Replace,%Filter%,",","#$c",%Filter%
 
-If,%Recurse%,Equal,True,ShellExecute,Hide,"powershell.exe","-ExecutionPolicy Bypass -Command #$qGet-ChildItem -Path '%Path%' -Include %Filter% -Recurse | ForEach { $NewName = $_.Name.Replace('#$c%Suffix%.','.'); $Destination = Join-Path -Path $_.Directory.FullName -ChildPath $NewName; Move-Item -Path $_.FullName -Destination $Destination -Force }#$q","%Path%"
-Else,ShellExecute,Hide,"powershell.exe","-ExecutionPolicy Bypass -Command #$qGet-ChildItem -Path '%Path%\*' -Include %Filter% | ForEach { Move-Item $_ $_.Name.Replace('#$c%Suffix%.','.') -Force }#$q","%Path%"
+If,%Recurse%,Equal,True,ShellExecute,Hide,"powershell.exe","-ExecutionPolicy Bypass -Command #$qGet-ChildItem -Path '%Path%' -Include %Filter% -Recurse | ForEach { Move-Item -Force $_ $_.Name.Replace('#$c%Suffix%.','.') }#$q","%Path%"
+Else,ShellExecute,Hide,"powershell.exe","-ExecutionPolicy Bypass -Command #$qGet-ChildItem -Path '%Path%\*' -Include %Filter% | ForEach { Move-Item -Force $_ $_.Name.Replace('#$c%Suffix%.','.') }#$q","%Path%"
 If,Not,%ExitCode%,Equal,0,Halt,"InnoRename Error: Failed to cleanup files. [%ExitCode%]."
 
 System,EndLocal
@@ -1783,3 +1786,179 @@ Else,Begin
 End
 
 System,EndLocal
+
+[#_PhoenixAPI_WebDownload#]
+// ===============================================================================================================================
+// Name...........: WebDownload
+// Description....: Download Files with external downloaders that work more solid against services like archive.org
+// Syntax.........: WebDownload<URL>,<DestPath>[,<HashType>=<HashDigest>][,Referer=<URL>][,TimeOut=<Int>][,UserAgent=<Agent>][,NOERR]
+// Parameters.....: see documentation for WebGet 
+// Return values..: ExitCode see documentation for WebGet
+//                  You must handle ExitCode. The script will not Exit/Halt.
+// Author.........: Peter Siering, ps@ct.de
+// Remarks........: Should be a drop in replacement for WebGet and can use different downloaders like curl, aria2c
+// Related........: 
+// ===============================================================================================================================
+[_PhoenixAPI_WebDownload]
+// local vars
+Set,%p_url%,""
+Set,%p_destpath%,""
+Set,%p_noerror%,False
+Set,%p_hashtype%,""
+Set,%p_hashdigest%,""
+Set,%p_refererurl%,""
+Set,%p_timeout%,"30"
+Set,%p_useragent%,""
+Set,%p_error%,""
+Set,%p_filename%,""
+Set,%p_pathname%,""
+Set,%Paras%,""
+
+Set,%ExitCode%,""
+
+// read given positional parameters
+GetParam,1,%p_url%
+GetParam,2,%p_destpath%
+// check if mandatory arguments are valid
+If,"%p_url%-",Equal,"-",Set,%p_error%,"Invalid URL"
+If,"%p_destpath%-",Equal,"-",Set,%p_error%,"Invalid DestPath"
+StrFormat,FileName,"%p_destpath%",%p_filename%
+If,"%p_filename%-",Equal,"-",Set,%p_error%,"Invalid Filename in DestPath"
+StrFormat,DirPath,"%p_destpath%",%p_pathname%
+If,"%p_pathname%-",Equal,"-",Set,%p_error%,"Invalid Path in DestPath"
+If,Not,"%p_error%",Equal,"",Halt,"%p_error%"
+// collect other comma separated
+ForRange,%Step%,3,8,1,Begin
+  GetParam,%Step%,%Single%
+  If,Not,%Single%,Equal,"",Set,%Paras%,"%Paras%,%Single%"
+  Set,%Single%,""
+End
+// remove commas: double, heading and tailing
+StrFormat,CTrim,%Paras%,",",%Paras%
+StrFormat,Replace,%Paras%,",,",",",%Paras%
+// iterate through optional parameters
+List,Count,%Paras%,%ParaCount%,Delim=#$c
+Math,Add,%ParaCount%,%ParaCount%,1
+If,%ParaCount%,Bigger,0,Begin
+  ForRange,%Pos%,1,%ParaCount%,1,Begin
+    List,Get,%Paras%,%Pos%,%Entry%,Delim=#$c
+    StrFormat,Pos,%Entry%,"NOERR",%p_pos%
+    If,%p_pos%,!=,0,Set,%p_noerror%,True
+    StrFormat,Pos,%Entry%,"Timeout=",%p_pos%
+    If,%p_pos%,!=,0,StrFormat,Split,%entry%,"=",2,%p_timeout%
+    StrFormat,Pos,%Entry%,"Referer=",%p_pos%
+    If,%p_pos%,!=,0,StrFormat,Split,%entry%,"=",2,%p_refererurl%
+    StrFormat,Pos,%Entry%,"UserAgent=",%p_pos%
+    If,%p_pos%,!=,0,StrFormat,Split,%entry%,"=",2,%p_useragent%
+    StrFormat,Pos,%Entry%,"MD5=",%p_pos%
+    If,%p_pos%,!=,0,Begin
+      StrFormat,Split,%entry%,"=",2,%p_hashdigest%
+      Set,%p_hashtype%,"md5"
+      Set,%p_hashlen%,32
+    End
+    StrFormat,Pos,%Entry%,"SHA1=",%p_pos%
+    If,%p_pos%,!=,0,Begin
+      StrFormat,Split,%entry%,"=",2,%p_hastdigest%
+      Set,%p_hashtype%,"sha1"
+      Set,%p_hashlen%,40
+    End
+    StrFormat,Pos,%Entry%,"SHA256=",%p_pos%
+    If,%p_pos%,!=,0,Begin
+      StrFormat,Split,%entry%,"=",2,%p_hashdigest%
+      Set,%p_hashtype%,"sha256"
+      Set,%p_hashlen%,64
+    End
+    StrFormat,Pos,%Entry%,"SHA384=",%p_pos%
+    If,%p_pos%,!=,0,Begin
+      StrFormat,Split,%entry%,"=",2,%p_hashdigest%
+      Set,%p_hashtype%,"sha384"
+      Set,%p_hashlen%,96
+    End
+    StrFormat,Pos,%Entry%,"SHA512=",%p_pos%
+    If,%p_pos%,!=,0,Begin
+      StrFormat,Split,%entry%,"=",2,%p_hashdigest%
+      Set,%p_hashtype%,"sha512"
+      Set,%p_hashlen%,128
+    End
+  End
+End
+
+// invalid hashes lead to 404 (skips download unlike WebGet does)
+If,Not,%p_hashtype%,Equal,"",Begin
+  StrFormat,Len,%p_hashdigest%,%p_pos%
+  If,Not,%p_hashlen%,Equal,%p_pos%,Set,%ExitCode%,404
+End
+If,%ExitCode%,Equal,404,Return,%ExitCode%
+
+// chain to webget
+If,%_PhoenixPE_Downloader%,Equal,"webget",Begin
+  FileDelete,%ProjectTemp%\helper.script,NOWARN
+  Set,%Call%,"WebGet,%p_url%,%p_destpath%"
+  If,Not,%Paras%,Equal,"",Set,%Call%,"%Call%,%Paras%"
+  TXTAddline,%ProjectTemp%\helper.script,"[RunWebGet]",Append
+  TXTAddline,%ProjectTemp%\helper.script,%Call%,Append
+  Exec,%ProjectTemp%\helper.script,RunWebGet
+  Set,%ExitCode%,#r
+  Return,%ExitCode%
+End
+
+// curl downloader
+If,%_PhoenixPE_Downloader%,Equal,"curl",Begin
+  // map WebGet params to curl
+  // notes: -m 600 max 10 minutes
+  // -f write response code to console and gives 22 in case of 4xx
+  Set,%curl_opts%,"--connect-timeout %p_timeout% -L -m 600 --create-dirs -f --stderr - -S -o #$q%p_destpath%#$q #$q%p_url%#$q"
+  If,Not,"%p_refererurl%",Equal,"",Set,%curl_opts%,"%curl_opts% -e #$q%p_refererurl%#$q"
+  If,Not,"%p_useragent%",Equal,"",Set,%curl_opts%,"%curl_opts% -A #$q%p_useragent%#$q"
+  ShellExecute,Hide,"%Tools%\x86\curl.exe","%curl_opts%"
+  // halt if NOERR not set
+  If,%p_noerror%,Equal,False,If,%ExitCode%,!=,0,Halt,"Failed download (%Exit Code%), NOERR not set"
+  // return 200 on success
+  If,%ExitCode%,Equal,0,Set,%ExitCode%,200
+  // return 404 on 22
+  If,%ExitCode%,Equal,22,Set,%ExitCode%,404
+End
+
+// aria2c downloader
+If,%_PhoenixPE_Downloader%,Equal,"aria2c",Begin
+  System,ErrorOff,1
+  DirMake,%p_pathname%
+  // aria2c is braindamaged and insists on creating download 
+  // target directory and also concats full path in -o with -d, so
+  System,ErrorOff,1
+  DirDelete,"%ProjectTemp%\aria2c_tmp"
+  // map WebGet params to aria2c
+  // notes: -t 600 max 10 minutes
+  // --auto-file-rename - stop aria2c from renaming downloaded files
+  Set,%aria2c_opts%,"#$q%p_url%#$q -d #$q%ProjectTemp%\aria2c_tmp#$q --connect-timeout %p_timeout% -o #$q%p_filename%#$q"
+  Set,%aria2c_opts%,"%aria2c_opts% -t 600 --conf-path=%Tools%\%HostArch%\aria2c.conf"
+  If,Not,"%p_refererurl%",Equal,"",Set,%aria2c_opts%,"%aria2c_opts% --referer=#$q%p_refererurl%#$q"
+  If,Not,"%p_useragent%",Equal,"",Set,%aria2c_opts%,"%aria2c_opts% --user-agent=#$q%p_useragent%#$q"
+  ShellExecute,Hide,"%Tools%\%HostArch%\aria2c.exe","%aria2c_opts%"
+  Set,%ExitCode%,#r
+  // success, resolv brainfuck and move file to real destination, return 200
+  If,#r,Equal,0,Begin
+    // FileMove fails, if already present, so
+    FileDelete,"%p_destpath%",NOWARN
+    FileMove,"%ProjectTemp%\aria2c_tmp\%p_filename%","%p_destpath%"
+    Set,%ExitCode%,200
+  End
+  If,#r,Equal,3,Set,%ExitCode%,404
+End
+
+// hash check
+// wrong hashes return 404 even on download success
+If,%ExitCode%,Equal,200,Begin
+  If,Not,%p_hashtype%,Equal,"",Begin
+    Hash,%p_hashtype%,%p_destpath%,%p_filehash%
+    If,Not,%p_hashdigest%,Equal,%p_filehash%,Set,%ExitCode%,1
+  End
+End
+Return,%ExitCode%
+
+// Idea 
+//[_PhoenixAPI_WebDownloadCurl]
+//System,SetLocal
+//Set,%_PhoenixPE_Downloader%,curl
+//Run,%API%,_PhoenixAPI_WebDownload,#1,#2,#3,#4,#5,#6,#7
+//System,EndLocal
